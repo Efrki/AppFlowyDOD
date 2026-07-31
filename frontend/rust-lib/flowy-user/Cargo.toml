@@ -48,6 +48,9 @@ validator = { workspace = true, features = ["derive"] }
 rayon = "1.10.0"
 num_enum.workspace = true
 
+[target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
+keyring = "2.3"
+
 [dev-dependencies]
 fake = "2.0.0"
 rand = "0.8.4"
