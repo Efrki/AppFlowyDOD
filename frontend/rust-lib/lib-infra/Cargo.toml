@@ -28,6 +28,8 @@ futures-util = "0.3.30"
 
 
 aes-gcm = { version = "0.10.2", optional = true }
+chacha20poly1305 = { version = "0.10.1", optional = true }
+argon2 = { version = "0.5.3", optional = true }
 rand = { version = "0.8.5", optional = true }
 pbkdf2 = { version = "0.12.2", optional = true }
 hmac = { version = "0.12.1", optional = true }
@@ -45,4 +47,4 @@ brotli = { version = "3.4.0", optional = true }
 [features]
 compression = ["brotli"]
 isolate_flutter = ["allo-isolate"]
-encryption = ["aes-gcm", "rand", "pbkdf2", "hmac", "sha2"]
+encryption = ["aes-gcm", "chacha20poly1305", "argon2", "rand", "pbkdf2", "hmac", "sha2"]
