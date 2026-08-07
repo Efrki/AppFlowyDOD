@@ -21,7 +21,7 @@ cd ~
 rm -rf ~/AppFlowy-Cloud
 
 # сертификат AppFlowy, если успели получить (подставьте свой домен)
-certbot delete --cert-name tasks.example.com 2>/dev/null
+certbot delete --cert-name tasks.ruchatting.ru 2>/dev/null
 
 # на всякий случай убедиться, что ничего лишнего не осталось
 docker ps -a          # не должно быть контейнеров appflowy/gotrue/minio/postgres-от-appflowy
@@ -32,13 +32,20 @@ docker volume ls | grep appflowy
 
 ## Требования
 
-- Домен или поддомен, A-запись которого указывает на IP этого сервера
-  (например `tasks.ruchatting.ru`, если удобно использовать поддомен существующего домена).
-- Доступ к панели DNS этого домена (для получения сертификата без порта 80).
+- Поддомен `tasks.ruchatting.ru` — используем уже имеющийся домен `ruchatting.ru`, отдельно ничего
+  покупать не нужно. Заведите A-запись в панели DNS, указывающую на IP этого сервера:
+
+  | Тип | Имя | Значение |
+  |---|---|---|
+  | A | `tasks` | IP этого сервера |
+
+  Проверить, что запись разошлась: `dig +short tasks.ruchatting.ru` — должен вернуться IP сервера
+  (может занять до пары часов, обычно быстрее).
+- Доступ к той же панели DNS (для получения сертификата без порта 80).
 - Docker + docker compose plugin (скорее всего уже стоит, раз крутится Matrix).
 
-Ниже везде вместо `tasks.example.com` подставляйте свой домен, вместо `8443` — выбранный вами порт
-(любой свободный, не занятый Matrix/LiveKit; проверить: `ss -tlnp | grep :8443`).
+Ниже везде используется `tasks.ruchatting.ru` и порт `8443` — если возьмёте другой порт, проверьте
+его свободность: `ss -tlnp | grep :8443`.
 
 ## 1. Установка AppFlowy-Cloud
 
@@ -52,7 +59,7 @@ cp deploy.env .env
 
 | Переменная | Что поставить |
 |---|---|
-| `FQDN` | `tasks.example.com` |
+| `FQDN` | `tasks.ruchatting.ru` |
 | `SCHEME` | `https` |
 | `WS_SCHEME` | `wss` |
 | `NGINX_PORT` | `8080` (или другой свободный — под HTTP, используется только для собственных нужд контейнера) |
@@ -73,15 +80,15 @@ nginx AppFlowy-Cloud ждёт файлы по путям `./nginx/ssl/certificat
 
 ```bash
 certbot certonly --manual --preferred-challenges dns \
-  -d tasks.example.com --agree-tos --email you@example.com
+  -d tasks.ruchatting.ru --agree-tos --email you@example.com
 ```
 
-Certbot попросит добавить TXT-запись вида `_acme-challenge.tasks.example.com` в панели DNS вашего
+Certbot попросит добавить TXT-запись вида `_acme-challenge.tasks.ruchatting.ru` в панели DNS вашего
 домена — добавляете, ждёте минуту-две, подтверждаете в терминале Enter'ом.
 
 ```bash
-cp /etc/letsencrypt/live/tasks.example.com/fullchain.pem nginx/ssl/certificate.crt
-cp /etc/letsencrypt/live/tasks.example.com/privkey.pem  nginx/ssl/private_key.key
+cp /etc/letsencrypt/live/tasks.ruchatting.ru/fullchain.pem nginx/ssl/certificate.crt
+cp /etc/letsencrypt/live/tasks.ruchatting.ru/privkey.pem  nginx/ssl/private_key.key
 ```
 
 **Про продление:** в `--manual` режиме certbot не продлевает сертификат автоматически — раз в
@@ -103,14 +110,14 @@ Firewall — открываем только новый порт, 80/443 уже 
 ufw allow 8443/tcp
 ```
 
-Проверьте в браузере: `https://tasks.example.com:8443` — должна открыться страница AppFlowy Cloud,
-`https://tasks.example.com:8443/console` — админ-консоль (вход по `GOTRUE_ADMIN_EMAIL`/`PASSWORD`).
+Проверьте в браузере: `https://tasks.ruchatting.ru:8443` — должна открыться страница AppFlowy Cloud,
+`https://tasks.ruchatting.ru:8443/console` — админ-консоль (вход по `GOTRUE_ADMIN_EMAIL`/`PASSWORD`).
 
 ## 4. Онбординг команды и закрытие регистрации
 
 1. Каждый член команды ставит собранный из этого репозитория клиент (ветка `develop`),
    в приложении: **Settings → Cloud Settings → AppFlowy Cloud Self-hosted**,
-   URL: `https://tasks.example.com:8443` — и регистрируется.
+   URL: `https://tasks.ruchatting.ru:8443` — и регистрируется.
 2. Когда все зарегистрировались — закройте регистрацию насовсем:
 
 ```bash
@@ -125,7 +132,7 @@ docker compose up -d
 файл `.env` в `frontend/appflowy_flutter/` при сборке:
 
 ```
-APPFLOWY_CLOUD_URL=https://tasks.example.com:8443
+APPFLOWY_CLOUD_URL=https://tasks.ruchatting.ru:8443
 ```
 
 ## 5. Данные на диске и бэкапы
