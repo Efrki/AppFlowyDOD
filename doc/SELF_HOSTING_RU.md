@@ -11,19 +11,30 @@
 | Домен | `tasks.ruchatting.ru` |
 | ОС | Ubuntu (Debian-совместимая) |
 
+## Что на сервере нельзя трогать
+
+На этой машине продолжает работать **TeamSpeak в Docker-контейнере**. Ни одна команда из гайда его
+не задевает, но при ручных экспериментах помните:
+
+| Объект | Значение |
+|---|---|
+| Контейнер | `teamspeak-server` |
+| Том с данными | `teamspeak6_ts-data` |
+| Конфиг | `/home/teamspeak/teamspeak6/docker-compose.yml` |
+| Порты | UDP 9987, TCP 30033 |
+
+**Никогда не выполняйте `docker system prune -a --volumes`** — эта команда снесёт том TeamSpeak
+вместе с настройками сервера, каналами и правами. Для очистки AppFlowy пользуйтесь только
+`docker compose down` из его собственной папки.
+
 ## 0. Очистка сервера от старых сервисов
 
-На сервере стоял Matrix-чат (`ruchatting.ru`) и LiveKit-звонки — их сносим. **TeamSpeak остаётся
-работать**, его не трогаем: он использует свои порты (UDP 9987, TCP 10011/30033) и с AppFlowy не
-конфликтует.
-
-Снос Matrix **необратим — вся переписка пользователей будет потеряна**.
-
-Сначала бэкап — на случай, если что-то из этого ещё понадобится:
+Выполняется один раз. Matrix-чат (`ruchatting.ru`) и LiveKit сносим, TeamSpeak остаётся.
+Снос Matrix **необратим — вся переписка пользователей будет потеряна**, поэтому сначала бэкап:
 
 ```bash
 mkdir -p /root/old-services-backup
-tar czf /root/old-services-backup/matrix.tar.gz /etc/matrix-synapse /var/lib/matrix-synapse 2>/dev/null
+tar czf /root/old-services-backup/matrix.tar.gz /etc/matrix-synapse /var/lib/matrix-synapse /opt/matrix 2>/dev/null
 tar czf /root/old-services-backup/livekit.tar.gz /etc/livekit /opt/lk-jwt-service 2>/dev/null
 tar czf /root/old-services-backup/nginx.tar.gz /etc/nginx 2>/dev/null
 ls -lh /root/old-services-backup/
@@ -44,15 +55,26 @@ rm -rf /etc/nginx
 systemctl daemon-reload
 
 # старые сертификаты Let's Encrypt
-certbot delete --cert-name livekit.ruchatting.ru 2>/dev/null
-certbot delete --cert-name ruchatting.ru 2>/dev/null
+certbot delete --cert-name livekit.ruchatting.ru
+certbot delete --cert-name ruchatting.ru
 ```
 
-Проверка, что порты 80/443 освободились, а TeamSpeak жив:
+Matrix был установлен дважды — пакетом apt и контейнером Docker. Второй убираем отдельно
+(имя контейнера подставьте из `docker ps -a`, у нас это `synapse`):
+
+```bash
+docker rm -f synapse
+docker rmi matrixdotorg/synapse:latest
+rm -rf /opt/matrix
+apt autoremove -y          # снести зависимости, оставшиеся от Matrix (~сотни node-* пакетов)
+```
+
+Проверка — порты 80/443 свободны, TeamSpeak жив, лишних контейнеров нет:
 
 ```bash
 ss -tlnp | grep -E ':80|:443'          # вывод должен быть пустым
 ss -ulnp | grep 9987                   # TeamSpeak должен остаться в списке
+docker ps -a                           # должен остаться только teamspeak-server
 ```
 
 ## 0b. Если нужно переустановить сам AppFlowy с нуля
@@ -85,8 +107,7 @@ sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd
 systemctl restart ssh
 ```
 
-**Файрвол.** Политика «всё закрыто, кроме разрешённого», поэтому порты TeamSpeak нужно открыть
-явно — иначе голосовой сервер перестанет принимать подключения:
+**Файрвол:**
 
 ```bash
 apt install -y ufw
@@ -94,19 +115,21 @@ ufw default deny incoming
 ufw allow ssh
 ufw allow 80/tcp
 ufw allow 443/tcp
-
-# TeamSpeak — без этих правил голос отвалится
-ufw allow 9987/udp     # голосовой трафик
-ufw allow 30033/tcp    # передача файлов
-ufw allow 10011/tcp    # ServerQuery: открывать только если админите извне, иначе пропустить
-
 ufw enable
-ufw status numbered    # проверить итоговый список
+ufw status numbered
 ```
 
-Postgres и MinIO наружу не выставляются самим docker-compose — отдельно закрывать не нужно.
+> **Важно: ufw не управляет портами Docker-контейнеров.** Docker пишет правила напрямую в iptables,
+> в обход ufw. Поэтому порты TeamSpeak (9987/30033) и порты AppFlowy (80/443) доступны из интернета
+> независимо от того, что показывает `ufw status` — открывать их правилами не нужно, но и закрыть
+> ими не получится. ufw здесь защищает только не-контейнерные сервисы: SSH и всё, что вы поставите
+> пакетами.
+>
+> Если понадобится ограничить доступ к самому AppFlowy (например, пускать только из VPN), это
+> делается либо привязкой портов к localhost в его `docker-compose.yml`, либо правилами в цепочке
+> `DOCKER-USER` — см. приложение про VPN.
 
-После включения файрвола зайдите в TeamSpeak с любого клиента и убедитесь, что голос работает.
+Postgres и MinIO наружу не публикуются самим docker-compose, поэтому снаружи недоступны.
 
 **Автообновления безопасности:**
 
@@ -316,10 +339,19 @@ AllowedIPs = 10.8.0.2/32
 ```bash
 systemctl enable --now wg-quick@wg0
 ufw allow 51820/udp
-ufw delete allow 80/tcp
-ufw delete allow 443/tcp
-ufw allow from 10.8.0.0/24 to any port 443 proto tcp
 ```
+
+Закрыть публичный доступ к AppFlowy правилами ufw **не получится** — порты опубликованы Docker'ом
+в обход ufw (см. врезку в разделе 1). Рабочий способ — привязать порты к VPN-адресу в
+`docker-compose.yml` AppFlowy-Cloud:
+
+```yaml
+  nginx:
+    ports:
+      - "10.8.0.1:443:443"    # вместо "443:443"
+```
+
+После правки `docker compose up -d` — сервис станет доступен только внутри VPN.
 
 В `.env` меняется `FQDN` на внутренний адрес (`10.8.0.1`), сертификат тогда самоподписанный —
 либо оставить домен и получать сертификат через DNS-проверку (`certbot --manual --preferred-challenges dns`).
