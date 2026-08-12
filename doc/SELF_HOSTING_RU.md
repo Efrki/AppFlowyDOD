@@ -13,8 +13,11 @@
 
 ## 0. Очистка сервера от старых сервисов
 
-На сервере стоял Matrix-чат (`ruchatting.ru`), LiveKit-звонки и TeamSpeak. Раздел выполняется
-только если решено их снести — **это необратимо, вся переписка пользователей будет потеряна**.
+На сервере стоял Matrix-чат (`ruchatting.ru`) и LiveKit-звонки — их сносим. **TeamSpeak остаётся
+работать**, его не трогаем: он использует свои порты (UDP 9987, TCP 10011/30033) и с AppFlowy не
+конфликтует.
+
+Снос Matrix **необратим — вся переписка пользователей будет потеряна**.
 
 Сначала бэкап — на случай, если что-то из этого ещё понадобится:
 
@@ -40,18 +43,16 @@ rm -f /etc/systemd/system/livekit.service /etc/systemd/system/lk-jwt-service.ser
 rm -rf /etc/nginx
 systemctl daemon-reload
 
-# пользователь TeamSpeak, если сервис больше не нужен
-userdel -r teamspeak 2>/dev/null
-
 # старые сертификаты Let's Encrypt
 certbot delete --cert-name livekit.ruchatting.ru 2>/dev/null
 certbot delete --cert-name ruchatting.ru 2>/dev/null
 ```
 
-Проверка, что порты 80/443 освободились:
+Проверка, что порты 80/443 освободились, а TeamSpeak жив:
 
 ```bash
-ss -tlnp | grep -E ':80|:443'   # вывод должен быть пустым
+ss -tlnp | grep -E ':80|:443'          # вывод должен быть пустым
+ss -ulnp | grep 9987                   # TeamSpeak должен остаться в списке
 ```
 
 ## 0b. Если нужно переустановить сам AppFlowy с нуля
@@ -84,7 +85,8 @@ sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd
 systemctl restart ssh
 ```
 
-**Файрвол:**
+**Файрвол.** Политика «всё закрыто, кроме разрешённого», поэтому порты TeamSpeak нужно открыть
+явно — иначе голосовой сервер перестанет принимать подключения:
 
 ```bash
 apt install -y ufw
@@ -92,10 +94,19 @@ ufw default deny incoming
 ufw allow ssh
 ufw allow 80/tcp
 ufw allow 443/tcp
+
+# TeamSpeak — без этих правил голос отвалится
+ufw allow 9987/udp     # голосовой трафик
+ufw allow 30033/tcp    # передача файлов
+ufw allow 10011/tcp    # ServerQuery: открывать только если админите извне, иначе пропустить
+
 ufw enable
+ufw status numbered    # проверить итоговый список
 ```
 
 Postgres и MinIO наружу не выставляются самим docker-compose — отдельно закрывать не нужно.
+
+После включения файрвола зайдите в TeamSpeak с любого клиента и убедитесь, что голос работает.
 
 **Автообновления безопасности:**
 
