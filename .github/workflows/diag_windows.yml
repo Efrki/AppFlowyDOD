@@ -1,0 +1,48 @@
+# Временная диагностика: какой Visual Studio видит Flutter на разных образах раннеров.
+# Удалить, когда сборка Windows заработает.
+name: diag-windows
+
+on:
+  push:
+    tags:
+      - "diag-*"
+
+jobs:
+  diag:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          flutter-version: "3.27.4"
+
+      - name: Образ и Visual Studio
+        shell: pwsh
+        run: |
+          Write-Host "=== ImageOS: $env:ImageOS / ImageVersion: $env:ImageVersion ==="
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (Test-Path $vswhere) {
+            Write-Host "=== vswhere -latest ==="
+            & $vswhere -latest -products * -format json |
+              ConvertFrom-Json |
+              Select-Object displayName, installationVersion, installationPath |
+              Format-List
+            Write-Host "=== vswhere с требованиями Flutter (C++ toolchain) ==="
+            & $vswhere -latest -products * `
+              -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+              -format json | ConvertFrom-Json |
+              Select-Object displayName, installationVersion | Format-List
+          } else {
+            Write-Host "vswhere НЕ НАЙДЕН — Visual Studio не установлен"
+          }
+
+      - name: Что видит Flutter
+        shell: pwsh
+        continue-on-error: true
+        run: flutter doctor -v
