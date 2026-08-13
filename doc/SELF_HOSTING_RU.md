@@ -248,9 +248,11 @@ docker compose ps    # все сервисы должны стать healthy
 
 ## 6. Онбординг команды и закрытие регистрации
 
-1. Каждый ставит клиент, собранный из этого репозитория (ветка `develop`), и в приложении:
-   **Settings → Cloud Settings → AppFlowy Cloud Self-hosted**, URL `https://tasks.ruchatting.ru` — регистрируется.
-2. Когда все зарегистрировались, закройте регистрацию:
+1. Соберите установщики и разошлите команде (см. §8 «Раздача клиента команде» — Windows качается
+   готовым, macOS собирается локально).
+2. Каждый ставит клиент и в приложении: **Settings → Cloud Settings → AppFlowy Cloud Self-hosted**,
+   URL `https://tasks.ruchatting.ru` — регистрируется.
+3. Когда все зарегистрировались, закройте регистрацию:
 
 ```bash
 nano .env      # GOTRUE_DISABLE_SIGNUP=true
@@ -281,19 +283,47 @@ rm /tmp/pg.sql
 Поставьте на расписание (cron или systemd timer). Пароль restic-репозитория храните **не на этом
 сервере** — иначе при его компрометации бэкапы бесполезны.
 
-## 8. Обновления
+## 8. Обновления и раздача клиента команде
+
+**Сервер:**
 
 ```bash
 cd ~/AppFlowy-Cloud && git pull && docker compose pull && docker compose up -d
 ```
 
-Клиент пересобирается из этого репозитория (ветка `develop`):
+**Клиент — Windows.** Не заставляйте коллег ставить Rust/Flutter вручную — в репозитории уже есть
+CI (`.github/workflows/release.yml`), который сам собирает установщик на серверах GitHub. Со своего
+Mac запушьте тег:
+
+```bash
+cd /Users/kirill/AppFlowyDOD
+git checkout develop
+git tag v1.0.0-dod
+git push origin v1.0.0-dod
+```
+
+Через ~20–30 минут проверьте `https://github.com/Efrki/AppFlowyDOD/actions` — сборка Windows готова.
+(Джоба macOS в этом же workflow может упасть красным — ей нужен платный Apple Developer-сертификат
+для подписи, которого у форка нет; на Windows-сборку это не влияет, они независимы.) Установщик
+появится на `https://github.com/Efrki/AppFlowyDOD/releases`:
+
+- `AppFlowy-v1.0.0-dod-windows-x86_64.exe` — скачать и запустить. Windows SmartScreen покажет
+  "неизвестный издатель" — это нормально для внутренней сборки без подписи: "Подробнее → Всё равно выполнить".
+
+На каждое обновление — новый тег с новым номером (`v1.0.1-dod` и т.д.), CI пересоберёт установщик заново.
+
+**Клиент — macOS.** Собирается локально (CI для Mac требует платный Apple-сертификат подписи и
+нотаризацию, которых у форка нет):
 
 ```bash
 cd frontend
 cargo make --profile development-mac-arm64 appflowy-core-dev
 cd appflowy_flutter && flutter build macos
 ```
+
+Готовое приложение — `frontend/appflowy_flutter/build/macos/Build/Products/Release/AppFlowy.app`.
+Заzipуйте и передайте остальным Mac-пользователям; при первом запуске Gatekeeper тоже предупредит про
+неизвестного разработчика — открывается через правый клик → "Открыть".
 
 ## 9. Что защищено, а что нет
 
