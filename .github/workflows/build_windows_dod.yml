@@ -1,0 +1,108 @@
+# Сборка Windows-клиента для команды.
+#
+# Отдельный воркфлоу вместо release.yml: там метки раннеров (windows-2019, macos-13)
+# выведены GitHub из эксплуатации, а джоба Docker требует секретов, которых у форка нет.
+# Здесь собирается только Windows и только то, что нужно команде.
+name: build-windows-dod
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Версия сборки (без ведущей v, например 1.0.0)"
+        required: true
+        default: "1.0.0"
+  push:
+    tags:
+      - "dod-*"
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: "3.27.4"
+  RUST_TOOLCHAIN: "1.85.0"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Определить версию сборки
+        id: vars
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            version="${{ github.event.inputs.version }}"
+          else
+            version="${GITHUB_REF_NAME#dod-}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "release_path=frontend/appflowy_flutter/product/$version/windows" >> "$GITHUB_OUTPUT"
+
+      - name: Install flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: x86_64-pc-windows-msvc
+          components: rustfmt
+
+      - name: Install prerequisites
+        working-directory: frontend
+        run: |
+          vcpkg integrate install
+          cargo install --force --locked cargo-make
+          cargo install --force --locked duckscript_cli
+
+      - name: Build AppFlowy
+        working-directory: frontend
+        # cargo make запускается отдельным шагом: при слитном запуске файлы блокируются
+        run: |
+          flutter config --enable-windows-desktop
+          dart ./scripts/flutter_release_build/build_flowy.dart exclude-directives . ${{ steps.vars.outputs.version }}
+          cargo make --env APP_VERSION=${{ steps.vars.outputs.version }} --profile production-windows-x86 appflowy
+          dart ./scripts/flutter_release_build/build_flowy.dart include-directives . ${{ steps.vars.outputs.version }}
+
+      - name: Собрать zip (портативная версия)
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "${{ steps.vars.outputs.release_path }}\*" `
+                           -DestinationPath "AppFlowy-${{ steps.vars.outputs.version }}-windows-x86_64.zip"
+
+      - name: Собрать установщик (.exe)
+        id: installer
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          Copy-Item frontend\scripts\windows_installer\* "${{ steps.vars.outputs.release_path }}"
+          Push-Location "${{ steps.vars.outputs.release_path }}"
+          iscc /FAppFlowy-${{ steps.vars.outputs.version }}-windows-x86_64 inno_setup_config.iss /DAppVersion=${{ steps.vars.outputs.version }}
+          Pop-Location
+          Copy-Item "${{ steps.vars.outputs.release_path }}\Output\*.exe" .
+
+      - name: Опубликовать релиз
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dod-${{ steps.vars.outputs.version }}
+          name: AppFlowy DOD ${{ steps.vars.outputs.version }}
+          body: |
+            Клиент AppFlowy для команды, собран из ветки `develop` (шифрование Argon2id + XChaCha20-Poly1305).
+
+            Сервер: `https://tasks.ruchatting.ru` — указывается в приложении:
+            Settings → Cloud Settings → AppFlowy Cloud Self-hosted.
+
+            Установщик не подписан сертификатом, поэтому Windows SmartScreen покажет
+            «неизвестный издатель»: Подробнее → Всё равно выполнить.
+          files: |
+            AppFlowy-${{ steps.vars.outputs.version }}-windows-x86_64.zip
+            AppFlowy-${{ steps.vars.outputs.version }}-windows-x86_64.exe
+          fail_on_unmatched_files: false
