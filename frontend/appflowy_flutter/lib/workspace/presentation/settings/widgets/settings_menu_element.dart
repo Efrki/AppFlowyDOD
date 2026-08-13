@@ -40,10 +40,16 @@ class SettingsMenuElement extends StatelessWidget {
           children: [
             icon,
             HSpace(theme.spacing.m),
-            Text(
-              label,
-              style: theme.textStyle.body.standard(
-                color: theme.textColorScheme.primary,
+            // Flexible + ellipsis: в переводах длиннее английского (например,
+            // «Аккаунт и Приложение») строка не влезает в колонку настроек,
+            // и Row уходит в overflow - в Debug это рисуется полосатой лентой.
+            Flexible(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textStyle.body.standard(
+                  color: theme.textColorScheme.primary,
+                ),
               ),
             ),
           ],
