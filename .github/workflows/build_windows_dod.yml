@@ -25,7 +25,10 @@ env:
 
 jobs:
   build-windows:
-    runs-on: windows-latest
+    # Образ закреплён намеренно, не меняйте на windows-latest: там Visual Studio 2026 (v18),
+    # а Flutter 3.27.4 знает только v16/v17 и молча откатывается на генератор
+    # "Visual Studio 16 2019", которого нет ни на одном живом образе -> CMake падает.
+    runs-on: windows-2022
     steps:
       - name: Checkout source code
         uses: actions/checkout@v4
@@ -71,6 +74,21 @@ jobs:
           cargo make --env APP_VERSION=${{ steps.vars.outputs.version }} --profile production-windows-x86 appflowy
           dart ./scripts/flutter_release_build/build_flowy.dart include-directives . ${{ steps.vars.outputs.version }}
 
+      - name: Проверить, что сборка действительно произошла
+        shell: pwsh
+        # cargo make вызывает Flutter через duckscript exec, который не проверяет код возврата:
+        # при падении Flutter задача рапортует успех и копирует пустую папку. Ловим это здесь.
+        run: |
+          $exe = "${{ steps.vars.outputs.release_path }}\AppFlowy\AppFlowy.exe"
+          if (-not (Test-Path $exe)) {
+            Write-Host "::error::Сборка не создала $exe - Flutter упал, а cargo make это скрыл."
+            Write-Host "Содержимое каталога продукта:"
+            Get-ChildItem -Recurse -Depth 2 "frontend\appflowy_flutter\product" -ErrorAction SilentlyContinue |
+              Select-Object -First 40 | ForEach-Object { Write-Host "  $($_.FullName)" }
+            exit 1
+          }
+          Write-Host "OK: $exe ($([math]::Round((Get-Item $exe).Length/1MB,1)) MB)"
+
       - name: Собрать zip (портативная версия)
         shell: pwsh
         run: |
@@ -102,7 +120,8 @@ jobs:
 
             Установщик не подписан сертификатом, поэтому Windows SmartScreen покажет
             «неизвестный издатель»: Подробнее → Всё равно выполнить.
-          files: |
-            AppFlowy-${{ steps.vars.outputs.version }}-windows-x86_64.zip
-            AppFlowy-${{ steps.vars.outputs.version }}-windows-x86_64.exe
-          fail_on_unmatched_files: false
+          # маска, а не два точных имени: установщик собирается best-effort,
+          # и публикация не должна падать, если есть хотя бы zip
+          files: AppFlowy-${{ steps.vars.outputs.version }}-windows-x86_64.*
+          # true: пустой релиз без файлов - это провал, а не успех
+          fail_on_unmatched_files: true
