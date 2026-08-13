@@ -233,6 +233,41 @@ post-hook = cd /root/AppFlowy-Cloud && docker compose start nginx
 
 ## 5. Запуск
 
+### Версии образов закреплены намеренно
+
+Не убирайте эти строки из `.env` и не меняйте на `latest`:
+
+```
+APPFLOWY_CLOUD_VERSION=0.9.64
+GOTRUE_VERSION=0.9.64
+APPFLOWY_ADMIN_FRONTEND_VERSION=0.9.64
+APPFLOWY_WORKER_VERSION=0.9.64
+APPFLOWY_WEB_VERSION=0.1.19
+```
+
+Причина: `appflowyinc/appflowy_cloud:latest` собирается **не из открытых исходников**, а из
+закрытого коммерческого форка, и бесплатный тариф в нём ограничен **одним пользователем на
+рабочую область** (`Free plan limits - max_users: 1, max_guests: 3` в логах при старте).
+Ограничение не документировано, ошибки не выдаёт: сервер молча отказывается создавать профиль,
+`/api/user/verify` возвращает `is_new: false`, а потом всё падает с `User not found` — человек
+просто не может войти.
+
+`0.9.64` от 4 июля 2025 — последний образ, собранный из AGPL-исходников. Тем же днём датирован
+последний релиз в открытом репозитории; всё, что выше по номеру (включая теги `0.9.1xx` от
+декабря 2025), уже из форка, хотя нумерация продолжается та же.
+
+### Заплатки в docker-compose.override.yml
+
+Апстримный `docker-compose.yml` рассчитан на свежие образы, поэтому рядом лежит
+`docker-compose.override.yml` — его тоже не удаляйте:
+
+| Что чинит | Почему |
+|---|---|
+| `healthcheck` на `/health` | в 0.9.64 эндпоинт назывался так; `/api/health` появился позже, и штатная проверка валит по зависимости полстека |
+| `ADMIN_FRONTEND_*` переменные | 0.9.64 читает их, свежий compose передаёт другие имена — консоль уходит на `localhost` и падает с паникой |
+| `ADMIN_FRONTEND_PATH_PREFIX: /console` | без него консоль отдаёт ссылки на `/web` и уводит браузер в веб-клиент |
+| `ai` в профиле `ai` | свежий образ AI требует миграцию, которой в 0.9.64 нет, и уходит в бесконечный перезапуск; AI не используется |
+
 ```bash
 cd ~/AppFlowy-Cloud
 docker compose up -d
@@ -268,7 +303,39 @@ docker compose up -d
 APPFLOWY_CLOUD_URL=https://tasks.ruchatting.ru
 ```
 
+## 6b. Управление сервером: afctl
+
+Вместо россыпи команд `docker`/`curl`/`psql` на сервере лежит `/root/afctl.sh`
+(исходник — [`deploy/afctl.sh`](../deploy/afctl.sh)):
+
+```bash
+/root/afctl.sh status              # стек, лимиты плана, срок TLS, бэкапы — одним экраном
+/root/afctl.sh users               # список учёток
+/root/afctl.sh passwd <email>      # выдать пароль без письма (SMTP не нужен)
+/root/afctl.sh up                  # обновить и дождаться готовности
+/root/afctl.sh pin <версия>        # закрепить версию образа
+/root/afctl.sh backup              # дамп БД + файлы minio + конфиги
+/root/afctl.sh install-cron        # ежедневный бэкап в 04:30
+```
+
+Обновить сам скрипт:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Efrki/AppFlowyDOD/develop/deploy/afctl.sh \
+  -o /root/afctl.sh && chmod +x /root/afctl.sh
+```
+
+`passwd` — не роскошь, а необходимость: пока SMTP не настроен, кнопка «забыл пароль» отдаёт
+500 (`Error sending recovery email`), и восстановить доступ человеку можно только так.
+
 ## 7. Бэкапы
+
+Минимальный вариант уже включён — `afctl.sh install-cron` кладёт ежедневный архив в
+`/var/backups/appflowy` (дамп postgres + том minio + `.env` + сертификаты, хранится 14 копий).
+Архив содержит `.env` со всеми секретами, поэтому каталог держите закрытым и **увозите копию с
+сервера**: сгоревший диск уносит и данные, и бэкап.
+
+Более серьёзный вариант с дедупликацией и внешним хранилищем:
 
 ```bash
 apt install -y restic

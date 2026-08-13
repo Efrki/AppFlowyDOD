@@ -242,11 +242,13 @@ cmd_pin() {
 
 cmd_backup() {
   mkdir -p "$BACKUP_DIR"; chmod 700 "$BACKUP_DIR"
-  local stamp tmp out vol
+  local stamp out vol
   stamp="$(date +%Y%m%d-%H%M%S)"
-  tmp="$(mktemp -d)"
   out="$BACKUP_DIR/appflowy-$stamp.tar.gz"
-  trap 'rm -rf "$tmp"' EXIT
+  # Каталог держим в глобальной переменной: ловушка EXIT срабатывает уже после
+  # выхода из функции, и local-переменную она бы не увидела (set -u -> падение).
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "${tmp:-}"' EXIT
 
   dcq exec -T postgres pg_dump -U "$PGUSER" -d "$PGDB" > "$tmp/postgres.sql"
   [ -s "$tmp/postgres.sql" ] || die "дамп postgres пустой, бэкап не создан"
