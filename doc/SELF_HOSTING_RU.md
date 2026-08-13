@@ -317,11 +317,23 @@ git push origin v1.0.0-dod
 
 ```bash
 cd frontend
-cargo make --profile development-mac-arm64 appflowy-core-dev
-cd appflowy_flutter && flutter build macos
+cargo make --profile development-mac-arm64 appflowy-dev
 ```
 
-Готовое приложение — `frontend/appflowy_flutter/build/macos/Build/Products/Release/AppFlowy.app`.
+Цель именно `appflowy-dev`, а не `appflowy-core-dev`: последняя собирает только Rust-ядро, а Dart-код
+(`LocaleKeys`, `FlowySvgs`, `*.freezed.dart`) создаётся отдельным шагом `code_generation`. Без него
+`flutter build macos` падает с сотнями ошибок вида `The getter 'LocaleKeys' isn't defined`.
+
+Требуется **полный Xcode** (не Command Line Tools) и CocoaPods:
+
+```bash
+sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+sudo xcodebuild -runFirstLaunch
+brew install cocoapods
+flutter doctor        # строки Xcode и CocoaPods должны быть зелёными
+```
+
+Готовое приложение — `frontend/appflowy_flutter/product/<версия>/macos/Release/AppFlowy.app`.
 Заzipуйте и передайте остальным Mac-пользователям; при первом запуске Gatekeeper тоже предупредит про
 неизвестного разработчика — открывается через правый клик → "Открыть".
 
